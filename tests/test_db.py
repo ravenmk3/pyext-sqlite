@@ -252,6 +252,39 @@ class TestUpdateAll:
         ])
         assert count == 2
 
+    def test_update_all_missing_id_raises(self, db):
+        setup_table(db)
+        db.insert("users", {"id": 1, "name": "a", "age": 10})
+        with pytest.raises(ValueError, match="must contain 'id'"):
+            db.update_all("users", [
+                {"id": 1, "name": "aa"},
+                {"name": "no_id"},
+            ])
+
+    def test_update_all_only_id_raises(self, db):
+        setup_table(db)
+        db.insert("users", {"id": 1, "name": "a", "age": 10})
+        with pytest.raises(ValueError, match="must contain fields beyond 'id'"):
+            db.update_all("users", [
+                {"id": 1, "name": "aa"},
+                {"id": 2},
+            ])
+
+    def test_update_all_basemodel(self, db):
+        setup_table(db)
+        db.insert_all("users", [
+            {"id": 1, "name": "a", "age": 1},
+            {"id": 2, "name": "b", "age": 2},
+        ])
+        users = [
+            UserModel(id=1, name="aa", age=10),
+            UserModel(id=2, name="bb", age=20),
+        ]
+        count = db.update_all("users", users)
+        assert count == 2
+        assert db.find_by_id("users", 1) == {"id": 1, "name": "aa", "age": 10}
+        assert db.find_by_id("users", 2) == {"id": 2, "name": "bb", "age": 20}
+
 
 class TestUpsert:
     def test_upsert_inserts_new(self, db):
@@ -323,6 +356,34 @@ class TestUpsertAll:
         assert count == 2
         assert db.find_by_id("items", "w1")["name"] == "updated"
         assert db.find_by_id("items", "w2")["name"] == "new"
+
+    def test_upsert_all_empty_record_raises(self, db):
+        setup_table(db)
+        with pytest.raises(ValueError, match="must not be empty"):
+            db.upsert_all("users", [
+                {"id": 1, "name": "valid", "age": 10},
+                {},
+            ])
+
+    def test_upsert_all_only_id_raises(self, db):
+        setup_table(db)
+        with pytest.raises(ValueError, match="must contain fields beyond 'id'"):
+            db.upsert_all("users", [
+                {"id": 1, "name": "valid", "age": 10},
+                {"id": 2},
+            ])
+
+    def test_upsert_all_basemodel(self, db):
+        setup_table(db)
+        db.insert("users", {"id": 1, "name": "orig", "age": 1})
+        users = [
+            UserModel(id=1, name="updated", age=10),
+            UserModel(id=2, name="new", age=20),
+        ]
+        count = db.upsert_all("users", users)
+        assert count == 2
+        assert db.find_by_id("users", 1) == {"id": 1, "name": "updated", "age": 10}
+        assert db.find_by_id("users", 2) == {"id": 2, "name": "new", "age": 20}
 
 
 class TestDeleteById:
