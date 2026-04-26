@@ -65,19 +65,19 @@ class SqliteDatabase:
         raise TypeError("record must be dict or pydantic BaseModel")
 
     def _build_insert(self, tb_name: str, fields: tuple) -> str:
-        columns = ", ".join(fields)
+        columns = ", ".join(f"[{f}]" for f in fields)
         placeholders = ", ".join("?" * len(fields))
         return f"INSERT INTO {tb_name} ({columns}) VALUES ({placeholders})"
 
     def _build_update(self, tb_name: str, fields: tuple) -> str:
-        sets = ", ".join(f"{f}=?" for f in fields)
-        return f"UPDATE {tb_name} SET {sets} WHERE id=?"
+        sets = ", ".join(f"[{f}]=?" for f in fields)
+        return f"UPDATE {tb_name} SET {sets} WHERE [id]=?"
 
     def _build_upsert(self, tb_name: str, fields: tuple) -> str:
-        columns = ", ".join(fields)
+        columns = ", ".join(f"[{f}]" for f in fields)
         placeholders = ", ".join("?" * len(fields))
-        updates = ", ".join(f"{f}=excluded.{f}" for f in fields if f != "id")
-        return f"INSERT INTO {tb_name} ({columns}) VALUES ({placeholders}) ON CONFLICT(id) DO UPDATE SET {updates}"
+        updates = ", ".join(f"[{f}]=excluded.[{f}]" for f in fields if f != "id")
+        return f"INSERT INTO {tb_name} ({columns}) VALUES ({placeholders}) ON CONFLICT([id]) DO UPDATE SET {updates}"
 
     def insert(self, tb_name: str, record: Union[dict, BaseModel]) -> int:
         data = self._extract_fields(record)
@@ -137,7 +137,7 @@ class SqliteDatabase:
         return total
 
     def delete_by_id(self, tb_name: str, id: Union[int, str]) -> int:
-        return self.execute(f"DELETE FROM {tb_name} WHERE id=?", (id,))
+        return self.execute(f"DELETE FROM {tb_name} WHERE [id]=?", (id,))
 
     def query_value(self, sql: str, params: Union[tuple, list] = ()) -> Optional[Any]:
         self._ensure_open()
@@ -165,7 +165,7 @@ class SqliteDatabase:
 
     def find_by_id(self, tb_name: str, id: Union[int, str]) -> Optional[dict]:
         self._ensure_open()
-        cur = self._conn.execute(f"SELECT * FROM {tb_name} WHERE id=?", (id,))
+        cur = self._conn.execute(f"SELECT * FROM {tb_name} WHERE [id]=?", (id,))
         row = cur.fetchone()
         if row is None:
             return None
@@ -176,7 +176,7 @@ class SqliteDatabase:
 
     def list_ids(self, tb_name: str) -> list[Union[int, str]]:
         self._ensure_open()
-        cur = self._conn.execute(f"SELECT id FROM {tb_name}")
+        cur = self._conn.execute(f"SELECT [id] FROM {tb_name}")
         return [row[0] for row in cur.fetchall()]
 
     def __enter__(self):
