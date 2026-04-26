@@ -103,15 +103,15 @@ class TestExecuteMany:
     def test_insert_multiple(self, db):
         setup_table(db)
         count = db.executemany(
-            "INSERT INTO users (id, name, age) VALUES (?, ?, ?)",
-            [(1, "a", 10), (2, "b", 20), (3, "c", 30)],
+            "INSERT INTO users (id, name, age) VALUES (:id, :name, :age)",
+            [{"id": 1, "name": "a", "age": 10}, {"id": 2, "name": "b", "age": 20}, {"id": 3, "name": "c", "age": 30}],
         )
         assert count == 3
 
     def test_empty_params(self, db):
         setup_table(db)
         count = db.executemany(
-            "INSERT INTO users (id, name, age) VALUES (?, ?, ?)",
+            "INSERT INTO users (id, name, age) VALUES (:id, :name, :age)",
             [],
         )
         assert count == 0
@@ -350,12 +350,12 @@ class TestQueryValue:
     def test_returns_value(self, db):
         setup_table(db)
         db.insert("users", {"id": 1, "name": "q", "age": 42})
-        val = db.query_value("SELECT age FROM users WHERE id=?", (1,))
+        val = db.query_value("SELECT age FROM users WHERE id=:id", {"id": 1})
         assert val == 42
 
     def test_returns_none_when_no_row(self, db):
         setup_table(db)
-        val = db.query_value("SELECT age FROM users WHERE id=?", (99,))
+        val = db.query_value("SELECT age FROM users WHERE id=:id", {"id": 99})
         assert val is None
 
 
@@ -383,7 +383,7 @@ class TestQuery:
             {"id": 1, "name": "alice", "age": 30},
             {"id": 2, "name": "bob", "age": 20},
         ])
-        rows = db.query("SELECT * FROM users WHERE age > ?", (25,))
+        rows = db.query("SELECT * FROM users WHERE age > :age", {"age": 25})
         assert len(rows) == 1
         assert rows[0]["name"] == "alice"
 
@@ -396,14 +396,14 @@ class TestFindAll:
             {"id": 2, "name": "bob", "age": 20},
             {"id": 3, "name": "charlie", "age": 30},
         ])
-        rows = db.find_all("users", "age = ?", (30,))
+        rows = db.find_all("users", "age = :age", {"age": 30})
         assert len(rows) == 2
         assert rows[0]["name"] == "alice"
         assert rows[1]["name"] == "charlie"
 
     def test_find_all_no_match(self, db):
         setup_table(db)
-        rows = db.find_all("users", "age > ?", (100,))
+        rows = db.find_all("users", "age > :age", {"age": 100})
         assert rows == []
 
 
@@ -411,12 +411,12 @@ class TestFindOne:
     def test_find_one_match(self, db):
         setup_table(db)
         db.insert("users", {"id": 1, "name": "alice", "age": 30})
-        row = db.find_one("users", "name = ?", ("alice",))
+        row = db.find_one("users", "name = :name", {"name": "alice"})
         assert row == {"id": 1, "name": "alice", "age": 30}
 
     def test_find_one_no_match(self, db):
         setup_table(db)
-        row = db.find_one("users", "name = ?", ("nobody",))
+        row = db.find_one("users", "name = :name", {"name": "nobody"})
         assert row is None
 
     def test_find_one_multiple_matches_returns_first(self, db):
@@ -425,7 +425,7 @@ class TestFindOne:
             {"id": 1, "name": "a", "age": 10},
             {"id": 2, "name": "a", "age": 20},
         ])
-        row = db.find_one("users", "name = ?", ("a",))
+        row = db.find_one("users", "name = :name", {"name": "a"})
         assert row is not None
         assert row["name"] == "a"
 

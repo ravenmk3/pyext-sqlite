@@ -43,16 +43,16 @@ class SqliteDatabase:
         self._conn.rollback()
         self._in_transaction = False
 
-    def execute(self, sql: str, params: Union[tuple, list] = ()) -> int:
+    def execute(self, sql: str, params: dict | None = None) -> int:
         self._ensure_open()
-        cur = self._conn.execute(sql, params)
+        cur = self._conn.execute(sql, params or {})
         if not self._in_transaction:
             self._conn.commit()
         return cur.rowcount
 
-    def executemany(self, sql: str, params: Union[tuple, list] = ()) -> int:
+    def executemany(self, sql: str, params: list[dict] | None = None) -> int:
         self._ensure_open()
-        cur = self._conn.executemany(sql, params)
+        cur = self._conn.executemany(sql, params or [])
         if not self._in_transaction:
             self._conn.commit()
         return cur.rowcount
@@ -66,16 +66,16 @@ class SqliteDatabase:
 
     def _build_insert(self, tb_name: str, fields: tuple) -> str:
         columns = ", ".join(f"[{f}]" for f in fields)
-        placeholders = ", ".join("?" * len(fields))
+        placeholders = ", ".join(f":{f}" for f in fields)
         return f"INSERT INTO {tb_name} ({columns}) VALUES ({placeholders})"
 
     def _build_update(self, tb_name: str, fields: tuple) -> str:
-        sets = ", ".join(f"[{f}]=?" for f in fields)
-        return f"UPDATE {tb_name} SET {sets} WHERE [id]=?"
+        sets = ", ".join(f"[{f}]=:{f}" for f in fields)
+        return f"UPDATE {tb_name} SET {sets} WHERE [id]=:id"
 
     def _build_upsert(self, tb_name: str, fields: tuple) -> str:
         columns = ", ".join(f"[{f}]" for f in fields)
-        placeholders = ", ".join("?" * len(fields))
+        placeholders = ", ".join(f":{f}" for f in fields)
         updates = ", ".join(f"[{f}]=excluded.[{f}]" for f in fields if f != "id")
         return f"INSERT INTO {tb_name} ({columns}) VALUES ({placeholders}) ON CONFLICT([id]) DO UPDATE SET {updates}"
 
@@ -85,8 +85,7 @@ class SqliteDatabase:
             raise ValueError("record must not be empty")
         fields = tuple(data.keys())
         sql = self._build_insert(tb_name, fields)
-        values = tuple(data[f] for f in fields)
-        return self.execute(sql, values)
+        return self.execute(sql, data)
 
     def insert_all(self, tb_name: str, records: list) -> int:
         if not records:
@@ -94,7 +93,7 @@ class SqliteDatabase:
         datas = [self._extract_fields(r) for r in records]
         fields = tuple(datas[0].keys())
         sql = self._build_insert(tb_name, fields)
-        params = [tuple(d[f] for f in fields) for d in datas]
+        params = [d for d in datas]
         return self.executemany(sql, params)
 
     def update(self, tb_name: str, record: Union[dict, BaseModel]) -> int:
@@ -105,8 +104,7 @@ class SqliteDatabase:
         if not fields:
             raise ValueError("record must contain fields beyond 'id' to update")
         sql = self._build_update(tb_name, fields)
-        values = tuple(data[f] for f in fields) + (data["id"],)
-        return self.execute(sql, values)
+        return self.execute(sql, data)
 
     def update_all(self, tb_name: str, records: list) -> int:
         if not records:
@@ -125,8 +123,7 @@ class SqliteDatabase:
             raise ValueError("record must contain fields beyond 'id' to upsert")
         fields = tuple(data.keys())
         sql = self._build_upsert(tb_name, fields)
-        values = tuple(data[f] for f in fields)
-        return self.execute(sql, values)
+        return self.execute(sql, data)
 
     def upsert_all(self, tb_name: str, records: list) -> int:
         if not records:
@@ -137,27 +134,27 @@ class SqliteDatabase:
         return total
 
     def delete_by_id(self, tb_name: str, id: Union[int, str]) -> int:
-        return self.execute(f"DELETE FROM {tb_name} WHERE [id]=?", (id,))
+        return self.execute(f"DELETE FROM {tb_name} WHERE [id]=:id", {"id": id})
 
-    def query_value(self, sql: str, params: Union[tuple, list] = ()) -> Optional[Any]:
+    def query_value(self, sql: str, params: dict | None = None) -> Optional[Any]:
         self._ensure_open()
-        cur = self._conn.execute(sql, params)
+        cur = self._conn.execute(sql, params or {})
         row = cur.fetchone()
         if row is None:
             return None
         return row[0]
 
-    def query(self, sql: str, params: Union[tuple, list] = ()) -> list[dict]:
+    def query(self, sql: str, params: dict | None = None) -> list[dict]:
         self._ensure_open()
-        cur = self._conn.execute(sql, params)
+        cur = self._conn.execute(sql, params or {})
         return [dict(row) for row in cur.fetchall()]
 
-    def find_all(self, tb_name: str, where: str, params: Union[tuple, list] = ()) -> list[dict]:
+    def find_all(self, tb_name: str, where: str, params: dict | None = None) -> list[dict]:
         return self.query(f"SELECT * FROM {tb_name} WHERE {where}", params)
 
-    def find_one(self, tb_name: str, where: str, params: Union[tuple, list] = ()) -> Optional[dict]:
+    def find_one(self, tb_name: str, where: str, params: dict | None = None) -> Optional[dict]:
         self._ensure_open()
-        cur = self._conn.execute(f"SELECT * FROM {tb_name} WHERE {where}", params)
+        cur = self._conn.execute(f"SELECT * FROM {tb_name} WHERE {where}", params or {})
         row = cur.fetchone()
         if row is None:
             return None
@@ -165,7 +162,7 @@ class SqliteDatabase:
 
     def find_by_id(self, tb_name: str, id: Union[int, str]) -> Optional[dict]:
         self._ensure_open()
-        cur = self._conn.execute(f"SELECT * FROM {tb_name} WHERE [id]=?", (id,))
+        cur = self._conn.execute(f"SELECT * FROM {tb_name} WHERE [id]=:id", {"id": id})
         row = cur.fetchone()
         if row is None:
             return None
