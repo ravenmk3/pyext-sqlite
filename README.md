@@ -35,6 +35,44 @@ db.delete_by_id("users", 1)
 db.close()
 ```
 
+## 事务上下文管理器
+
+使用 `with db.transaction()` 可以自动处理事务的提交和回滚，当发生异常时自动回滚：
+
+```python
+# 自动提交：正常完成时自动 commit
+try:
+    with db.transaction():
+        db.insert("users", {"id": 1, "name": "Alice", "age": 30})
+        db.insert("orders", {"id": 1, "user_id": 1, "amount": 100.0})
+    # 事务已提交
+except Exception:
+    # 发生异常时自动回滚
+    pass
+
+# 注意：不支持嵌套事务
+```
+
+## 性能优化
+
+提供一键优化写入和读取性能的方法：
+
+```python
+db = SqliteDatabase("app.db")
+
+# 优化写入性能（WAL + NORMAL 同步 + 32MB 缓存）
+db.fast_write()
+
+# 优化读取性能（256MB 内存映射 + 256MB 缓存）
+db.fast_read()
+
+# 或使用单独的 PRAGMA 设置
+db.wal_on()                    # 开启 WAL 模式
+db.sync_mode("NORMAL")         # 设置同步模式: OFF, NORMAL, FULL
+db.cache_size(-64000)          # 设置页缓存（KB，负值）
+db.mmap_size(536870912)        # 设置内存映射大小（字节）
+```
+
 ## API
 
 | 方法 | 说明 |
@@ -57,6 +95,12 @@ db.close()
 | `list_ids(tb)` | 列出所有 id |
 | `wal_on()` / `wal_off()` | 开启/关闭 WAL 模式 |
 | `begin()` / `commit()` / `rollback()` | 事务管理 |
+| `transaction()` | 事务上下文管理器 |
+| `fast_write()` | 优化写入性能 |
+| `fast_read()` | 优化读取性能 |
+| `sync_mode(mode)` | 设置同步模式 |
+| `cache_size(pages)` | 设置页缓存大小 |
+| `mmap_size(size)` | 设置内存映射大小 |
 
 支持上下文管理器：`with SqliteDatabase("app.db") as db: ...`
 

@@ -58,6 +58,49 @@ class TestWAL:
         assert result.lower() == "delete"
 
 
+class TestPerformanceOptions:
+    def test_sync_mode_full(self, db):
+        db.sync_mode("FULL")
+        result = db.query_value("PRAGMA synchronous")
+        assert result == 2  # FULL = 2
+
+    def test_sync_mode_normal(self, db):
+        db.sync_mode("NORMAL")
+        result = db.query_value("PRAGMA synchronous")
+        assert result == 1  # NORMAL = 1
+
+    def test_sync_mode_off(self, db):
+        db.sync_mode("OFF")
+        result = db.query_value("PRAGMA synchronous")
+        assert result == 0  # OFF = 0
+
+    def test_cache_size(self, db):
+        db.cache_size(-32000)
+        result = db.query_value("PRAGMA cache_size")
+        assert result == -32000
+
+    def test_mmap_size(self, db):
+        db.mmap_size(268435456)
+        result = db.query_value("PRAGMA mmap_size")
+        assert result == 268435456
+
+    def test_fast_write(self, db):
+        db.fast_write()
+        journal = db.query_value("PRAGMA journal_mode")
+        sync = db.query_value("PRAGMA synchronous")
+        cache = db.query_value("PRAGMA cache_size")
+        assert journal.lower() == "wal"
+        assert sync == 1  # NORMAL = 1
+        assert cache == -32000
+
+    def test_fast_read(self, db):
+        db.fast_read()
+        mmap = db.query_value("PRAGMA mmap_size")
+        cache = db.query_value("PRAGMA cache_size")
+        assert mmap == 268435456
+        assert cache == -256000
+
+
 class TestTransactions:
     def test_commit_persists(self, db):
         setup_table(db)
@@ -78,6 +121,31 @@ class TestTransactions:
         with pytest.raises(sqlite3.OperationalError):
             db.begin()
         db.rollback()
+
+
+class TestTransactionContext:
+    def test_transaction_success_commits(self, db):
+        setup_table(db)
+        with db.transaction():
+            db.insert("users", {"id": 1, "name": "a", "age": 10})
+        assert db.id_exists("users", 1)
+
+    def test_transaction_exception_rolls_back(self, db):
+        setup_table(db)
+        try:
+            with db.transaction():
+                db.insert("users", {"id": 1, "name": "a", "age": 10})
+                raise ValueError("oops")
+        except ValueError:
+            pass
+        assert not db.id_exists("users", 1)
+
+    def test_nested_transaction_raises(self, db):
+        setup_table(db)
+        with db.transaction():
+            with pytest.raises(RuntimeError):
+                with db.transaction():
+                    pass
 
 
 class TestExecute:
@@ -573,3 +641,118 @@ class TestDel:
         db.__del__()
         with pytest.raises(sqlite3.ProgrammingError):
             db.execute("SELECT 1")
+
+
+class TestErrorHandling:
+    def test_execute_invalid_sql_raises(self, db):
+        with pytest.raises(sqlite3.OperationalError):
+            db.execute("INVALID SQL")
+
+    def test_insert_into_nonexistent_table_raises(self, db):
+        with pytest.raises(sqlite3.OperationalError):
+            db.insert("nonexistent", {"id": 1, "name": "a"})
+
+    def test_find_by_id_missing_returns_none(self, db):
+        setup_table(db)
+        result = db.find_by_id("users", 999)
+        assert result is None
+
+    def test_find_one_no_match_returns_none(self, db):
+        setup_table(db)
+        result = db.find_one("users", "id = :id", {"id": 999})
+        assert result is None
+
+
+class TestEdgeCases:
+    def test_zero_id(self, db):
+        setup_table(db)
+        db.insert("users", {"id": 0, "name": "zero", "age": 1})
+        assert db.id_exists("users", 0)
+        row = db.find_by_id("users", 0)
+        assert row["name"] == "zero"
+
+    def test_negative_id(self, db):
+        setup_table(db)
+        db.insert("users", {"id": -1, "name": "neg", "age": 1})
+        assert db.id_exists("users", -1)
+        row = db.find_by_id("users", -1)
+        assert row["name"] == "neg"
+
+    def test_very_long_string(self, db):
+        setup_table(db)
+        long_name = "a" * 10000
+        db.insert("users", {"id": 1, "name": long_name, "age": 1})
+        row = db.find_by_id("users", 1)
+        assert row["name"] == long_name
+
+    def test_unicode(self, db):
+        setup_table(db)
+        db.insert("users", {"id": 1, "name": "你好世界 🌍", "age": 1})
+        row = db.find_by_id("users", 1)
+        assert row["name"] == "你好世界 🌍"
+
+    def test_special_characters_sql_injection_safe(self, db):
+        setup_table(db)
+        special_name = "O'Reilly"
+        db.insert("users", {"id": 1, "name": special_name, "age": 30})
+        row = db.find_by_id("users", 1)
+        assert row["name"] == special_name
+
+
+class TestExtractFieldsTypes:
+    def test_extract_fields_list_raises(self, db):
+        setup_table(db)
+        with pytest.raises(TypeError):
+            db.insert("users", [1, 2, 3])  # list 应该报错
+
+    def test_extract_fields_none_raises(self, db):
+        setup_table(db)
+        with pytest.raises(TypeError):
+            db.insert("users", None)
+
+    def test_update_list_raises(self, db):
+        setup_table(db)
+        db.insert("users", {"id": 1, "name": "a", "age": 10})
+        with pytest.raises(TypeError):
+            db.update("users", [1, 2, 3])  # list 应该报错
+
+    def test_upsert_list_raises(self, db):
+        setup_table(db)
+        with pytest.raises(TypeError):
+            db.upsert("users", [1, 2, 3])  # list 应该报错
+
+
+class TestDataTypes:
+    def test_null_value(self, db):
+        setup_table(db)
+        db.execute("INSERT INTO users (id, name) VALUES (1, 'alice')")  # age 为 NULL
+        row = db.find_by_id("users", 1)
+        assert row["age"] is None
+
+    def test_datetime_string(self, db):
+        db.execute("CREATE TABLE events (id INTEGER PRIMARY KEY, created_at TEXT)")
+        db.execute("INSERT INTO events VALUES (1, '2024-01-01 10:00:00')")
+        row = db.query("SELECT * FROM events")[0]
+        assert row["created_at"] == "2024-01-01 10:00:00"
+
+    def test_blob(self, db):
+        db.execute("CREATE TABLE files (id INTEGER PRIMARY KEY, data BLOB)")
+        blob_data = b"\x00\x01\x02\x03"
+        db.insert("files", {"id": 1, "data": blob_data})
+        row = db.find_by_id("files", 1)
+        assert row["data"] == blob_data
+
+    def test_float_precision(self, db):
+        setup_table_str_id(db)
+        db.insert("items", {"id": "f1", "name": "pi", "price": 3.14159265359})
+        row = db.find_by_id("items", "f1")
+        assert abs(row["price"] - 3.14159265359) < 0.0001
+
+    def test_boolean_as_integer(self, db):
+        db.execute("CREATE TABLE flags (id INTEGER PRIMARY KEY, active INTEGER)")
+        db.insert("flags", {"id": 1, "active": True})   # True -> 1
+        db.insert("flags", {"id": 2, "active": False})  # False -> 0
+        row1 = db.find_by_id("flags", 1)
+        row2 = db.find_by_id("flags", 2)
+        assert row1["active"] == 1
+        assert row2["active"] == 0
