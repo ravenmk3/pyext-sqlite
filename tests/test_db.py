@@ -756,3 +756,39 @@ class TestDataTypes:
         row2 = db.find_by_id("flags", 2)
         assert row1["active"] == 1
         assert row2["active"] == 0
+
+
+class TestExecScript:
+    def test_execute_create_tables_and_insert(self, db):
+        script = """
+            CREATE TABLE log (id INTEGER PRIMARY KEY, msg TEXT);
+            INSERT INTO log (id, msg) VALUES (1, 'hello');
+            INSERT INTO log (id, msg) VALUES (2, 'world');
+        """
+        db.executescript(script)
+        assert db.id_exists("log", 1)
+        assert db.id_exists("log", 2)
+        assert db.find_by_id("log", 1)["msg"] == "hello"
+
+    def test_execute_empty_script(self, db):
+        db.executescript("")
+
+    def test_execute_whitespace_only(self, db):
+        db.executescript("   ;   ;   ")
+
+    def test_execute_invalid_sql_raises(self, db):
+        with pytest.raises(sqlite3.OperationalError):
+            db.executescript("INVALID SQL")
+
+    def test_execute_inside_transaction_raises(self, db):
+        db.begin()
+        try:
+            with pytest.raises(RuntimeError, match="Cannot call executescript inside a transaction"):
+                db.executescript("CREATE TABLE t (id INTEGER PRIMARY KEY)")
+        finally:
+            db.rollback()
+
+    def test_execute_after_close_raises(self, db):
+        db.close()
+        with pytest.raises(sqlite3.ProgrammingError):
+            db.executescript("CREATE TABLE t (id INTEGER PRIMARY KEY)")

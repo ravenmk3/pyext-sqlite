@@ -117,6 +117,19 @@ class SqliteDatabase:
             self.rollback()
             raise
 
+    def executescript(self, script: str) -> None:
+        """执行多个以 ; 分隔的 SQL 语句（如建表脚本），不支持参数化查询"""
+        self._ensure_open()
+        if self._in_transaction:
+            raise RuntimeError(
+                "Cannot call executescript inside a transaction (it auto-commits)"
+            )
+        if self._lock:
+            with self._lock:
+                self._conn.executescript(script)
+        else:
+            self._conn.executescript(script)
+
     def execute(self, sql: str, params: dict | None = None) -> int:
         cur = self._execute(sql, params)
         self._auto_commit(cur)

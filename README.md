@@ -93,6 +93,7 @@ db.mmap_size(536870912)        # 设置内存映射大小（字节）
 | `find_all(tb, where, params)` | 按条件查询多条，返回 list[dict] |
 | `id_exists(tb, id)` | 判断 id 是否存在 |
 | `list_ids(tb)` | 列出所有 id |
+| `executescript(script)` | 执行 ; 分隔的多条 SQL 语句 |
 | `wal_on()` / `wal_off()` | 开启/关闭 WAL 模式 |
 | `begin()` / `commit()` / `rollback()` | 事务管理 |
 | `transaction()` | 事务上下文管理器 |
